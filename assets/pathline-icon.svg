@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" role="img" aria-labelledby="title">
+  <title id="title">Pathline app icon</title>
+  <defs>
+    <linearGradient id="pathline-gradient" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#14b8a6"/>
+      <stop offset="0.55" stop-color="#0e97c4"/>
+      <stop offset="1" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <rect width="108" height="108" rx="24" fill="url(#pathline-gradient)"/>
+  <path
+    d="M32 80 C44 81 48 72 59 67"
+    fill="none"
+    stroke="#fff"
+    stroke-width="6.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+  <path fill="#fff" d="M27.5,80 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 z"/>
+  <g transform="translate(37.8 27.35) scale(1.85)">
+    <path
+      fill="#fff"
+      d="M12,2C8.13,2 5,5.13 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13c0,-3.87 -3.13,-7 -7,-7zM12,11.5c-1.38,0 -2.5,-1.12 -2.5,-2.5s1.12,-2.5 2.5,-2.5 2.5,1.12 2.5,2.5 -1.12,2.5 -2.5,2.5z"/>
+  </g>
+</svg>
