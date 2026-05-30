@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.get_login_creds"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "net.extrawdw.apps.locationhistory",
+      "sha256_cert_fingerprints": [
+        "86:9B:3B:B7:07:40:1D:27:4B:B3:7E:06:66:CA:11:D3:B1:33:E4:30:1B:3C:B0:9F:44:2F:CF:00:42:1A:5D:EE",
+        "E6:34:5F:E8:1E:D6:47:7C:11:B9:90:CC:1F:18:AE:E1:2D:EB:2E:B7:C6:2C:36:02:BD:73:1F:4D:8B:BC:05:B5"
+      ]
+    }
+  }
+]
