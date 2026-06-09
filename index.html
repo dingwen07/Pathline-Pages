@@ -18,6 +18,8 @@
       <nav aria-label="Primary navigation">
         <a href="#features">Features</a>
         <a href="#privacy">Privacy</a>
+        <a href="#developers">Developers</a>
+        <a href="api.html">Data API</a>
         <a href="privacy.html">Privacy Policy</a>
       </nav>
     </header>
@@ -29,7 +31,7 @@
           <h1>Pathline</h1>
           <p class="lede">
             A private, on-device timeline of the places you visit and the trips between them.
-            No account, no cloud profile, and your location history stays on your phone.
+            Your location history stays on your phone.
           </p>
           <div class="hero-actions">
             <a class="button primary" href="https://play.google.com/store/apps/details?id=net.extrawdw.apps.locationhistory">Get it on Google Play</a>
@@ -77,6 +79,22 @@
           only to storage locations you choose.
         </p>
         <a class="button secondary" href="privacy.html">Privacy Policy</a>
+      </section>
+
+      <section id="developers" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">For developers</p>
+          <h2>Build on the on-device timeline.</h2>
+        </div>
+        <div class="developers-band">
+          <p>
+            The Pathline Data API lets another app on the same device read the user's timeline (visits and
+            trips) and raw location samples through a read-only Android <code>ContentProvider</code>. The
+            access is protected by custom Android runtime permissions the user approves and can revoke at any time. 
+            Users will receive notifications for access attempts and can review access history in the app.
+          </p>
+          <a class="button primary" href="api.html">Read the integration guide</a>
+        </div>
       </section>
     </main>
 

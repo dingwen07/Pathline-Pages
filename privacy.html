@@ -18,6 +18,8 @@
       <nav aria-label="Primary navigation">
         <a href="index.html#features">Features</a>
         <a href="index.html#privacy">Privacy</a>
+        <a href="index.html#developers">Developers</a>
+        <a href="api.html">Data API</a>
         <a aria-current="page" href="privacy.html">Privacy Policy</a>
       </nav>
     </header>
@@ -25,7 +27,7 @@
     <main class="policy">
       <p class="eyebrow">Privacy Policy</p>
       <h1>Privacy Policy</h1>
-      <p class="updated">Effective date: May 30, 2026</p>
+      <p class="updated">Effective date: June 9, 2026</p>
 
       <section>
         <h2>Overview</h2>
@@ -52,25 +54,61 @@
         <p>
           Pathline uses this information to record and display your timeline, classify trips and visits, improve
           place matching, run diagnostics you choose to share, and create backups or GPX exports when you enable them.
+          If you turn it on, Pathline can also make your data available on your device to other apps you specifically
+          authorize, as described in <a href="#data-api">Access by Other Apps on Your Device</a>.
         </p>
       </section>
 
       <section>
         <h2>Storage and Sharing</h2>
         <p>
-          Your Pathline timeline is stored locally on your Android device. Pathline does not sell your data and does
-          not operate a Pathline account service. If you enable backup, the app writes backup files to a folder you
-          select, such as local storage or a cloud storage provider available through Android's folder picker. You are
-          responsible for the privacy and security settings of that selected storage provider.
+          Your Pathline timeline is stored locally on your Android device. Pathline does not sell your data, does not
+          operate a Pathline account service, and does not itself transmit your location history off your device. If you
+          enable backup, the app writes backup files to a folder you select, such as local storage or a cloud storage
+          provider available through Android's folder picker. You are responsible for the privacy and security settings
+          of that selected storage provider. Separately, you can choose to let other apps installed on the same device
+          read Pathline data through an on-device interface you control — see
+          <a href="#data-api">Access by Other Apps on Your Device</a> below.
+        </p>
+      </section>
+
+      <section id="data-api">
+        <h2>Access by Other Apps on Your Device</h2>
+        <p>
+          Pathline includes an optional, read-only Data API that lets other apps installed on the same device read parts
+          of your Pathline data — your timeline (visits and trips), your saved places, and raw location samples —
+          directly on the device, over Android's standard inter-app interface. This data is not sent to Pathline servers
+          (Pathline has none) and is not transmitted off your device by Pathline; another app reads it locally only when
+          you have authorized that app.
+        </p>
+        <p>This access is off by default and stays under your control:</p>
+        <ul>
+          <li>A master <strong>“Access to Pathline data”</strong> switch in Pathline's settings is off until you turn it on. While it is off, no other app can read your data through this interface.</li>
+          <li>Each app must additionally hold the specific Android permissions you approve, scoped to what it may read (for example, timeline only, trip routes, or raw location samples).</li>
+          <li>Pathline keeps an on-device access log recording every read — and every blocked attempt — that you can review, and you can revoke any app's access at any time from Pathline's settings or Android's app permission settings.</li>
+          <li>This access log stays on your device and is not included in Pathline's backups.</li>
+        </ul>
+        <p>
+          Once you authorize another app to read Pathline data, what that app does with the data it reads is governed by
+          that app's own privacy policy and terms, not this one. Grant access only to apps you trust.
         </p>
       </section>
 
       <section>
         <h2>Third-Party Services</h2>
         <p>
-          Pathline uses Google Maps and place-related services to display maps and help identify places. Those services
-          may receive requests needed to provide map tiles, map interactions, or place information. Their handling of
-          information is governed by Google's applicable terms and privacy policies.
+          Pathline uses Google Maps Platform (Google Maps and Google Places) to display maps and to help identify
+          places. Using these features sends location information to Google, because providing them requires it:
+        </p>
+        <ul>
+          <li>When a map is shown, the map area you are viewing is sent to Google to fetch map imagery. Because those maps are usually centered on the places and routes in your timeline, this conveys the corresponding location coordinates to Google.</li>
+          <li>If you grant precise-location permission and use the on-map location layer or the recenter control, your device's current location is also sent to Google so the map can show or center on it.</li>
+          <li>When you search for a place, or when Pathline suggests nearby places as you confirm a visit, the relevant coordinates — a point and a surrounding search area — are sent to Google's Places service so it can find and rank results.</li>
+        </ul>
+        <p>
+          These requests are made to Google to provide the map and place features and are governed by Google's
+          applicable terms and privacy policies. They require network access; if you do not use the map or place
+          features, this information is not sent. Pathline does not send your location to any other third party.
         </p>
       </section>
 
@@ -84,6 +122,7 @@
           <li>Network and Wi-Fi state may be used for location context and map functionality.</li>
           <li>Phone state is optional and may be used to improve cell-signal context; Pathline works if you deny it.</li>
           <li>Boot completed permission is used to re-arm recording after device restart when recording is enabled.</li>
+          <li>Pathline also defines its own access permissions that <em>other</em> apps must request, and that you must approve, before they can read Pathline data on your device (see <a href="#data-api">Access by Other Apps on Your Device</a>).</li>
         </ul>
       </section>
 

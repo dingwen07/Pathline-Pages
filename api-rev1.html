@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Data API Revision 1 (archived) — Integration Guide | Pathline</title>
+    <meta name="description" content="Archived integration guide for Pathline Data API revision 1 (Pathline 1.5.x). The current revision is 2 — see the current guide.">
+    <link rel="icon" href="assets/pathline-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="assets/pathline-icon.svg">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html" aria-label="Pathline home">
+        <img class="brand-icon" src="assets/pathline-icon.svg" alt="" aria-hidden="true">
+        <span>Pathline</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="index.html#features">Features</a>
+        <a href="index.html#privacy">Privacy</a>
+        <a href="index.html#developers">Developers</a>
+        <a href="api.html">Data API</a>
+        <a href="privacy.html">Privacy Policy</a>
+      </nav>
+    </header>
+
+    <main class="doc">
+      <p class="eyebrow">Developers</p>
+      <h1>Pathline Data API</h1>
+      <p class="doc-sub">Integration Guide · API Revision 1</p>
+      <p class="doc-meta">
+        <span class="badge badge-archived">Archived · Revision 1</span>
+        <span>Pathline 1.5.0 (version code 12)</span>
+        <a class="button secondary small" href="api-revisions.html">Revision history</a>
+        <a class="button secondary small" href="contracts/PathlineContract-rev1.kt" download>Download contract</a>
+      </p>
+
+      <div class="callout warning">
+        <p class="callout-title">Archived revision</p>
+        <p>This is the guide for <strong>API revision 1</strong> (Pathline 1.5.x). The current revision is <strong>2</strong>, available in Pathline 1.6.x and later — see the <a href="api.html">current integration guide</a>. This page is kept so integrations built against revision 1 can still reference the exact contract they target.</p>
+      </div>
+
+      <p>
+        The Pathline Data API lets another app on the same device read the user's
+        timeline (visits and trips) and raw recorded location samples from
+        Pathline, through an exported, read-only Android
+        <a href="https://developer.android.com/guide/topics/providers/content-provider-basics"><code>ContentProvider</code></a>.
+        Reaching the provider requires a single install-time permission your app declares
+        (auto-granted, no prompt); access to the <em>data</em> is then gated by custom runtime
+        permissions the user approves in the system permission dialog.
+      </p>
+      <ul>
+        <li><strong>On-device only.</strong> Nothing is sent off the device by this API; you read another local app's data via IPC.</li>
+        <li><strong>User-gated.</strong> A consumer only ever sees data for scopes the user has explicitly granted.</li>
+        <li><strong>Read-only.</strong> There is no way to write, modify, or delete Pathline data through this API.</li>
+        <li><strong>Audited.</strong> Every read — and any denied (unauthorized) attempt — is logged by Pathline and shown to the user, who can revoke access at any time. A denied attempt also notifies the user, so guard your queries (see <a href="#best-practices">§8</a>).</li>
+      </ul>
+
+      <div class="callout note">
+        <p class="callout-title">Note</p>
+        <p>This guide targets API revision 1, first available in Pathline 1.5.0 (version code 12). The authority, permission names, URI paths, and column names documented here are part of Pathline's stable contract — see <a href="#stability">Stability &amp; versioning</a>.</p>
+      </div>
+
+      <h2 id="contents">Contents</h2>
+      <ol class="toc">
+        <li><a href="#how-it-works">How it works</a></li>
+        <li><a href="#requirements">Requirements &amp; compatibility</a></li>
+        <li><a href="#quick-start">Quick start</a></li>
+        <li><a href="#permissions">Permissions</a></li>
+        <li><a href="#querying">Querying</a></li>
+        <li><a href="#data-reference">Data reference</a></li>
+        <li><a href="#complete-example">Complete example</a></li>
+        <li><a href="#best-practices">Best practices</a></li>
+        <li><a href="#privacy">Privacy &amp; transparency</a></li>
+        <li><a href="#stability">Stability &amp; versioning</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+        <li><a href="#appendix-a">Appendix A — Contract constants</a></li>
+      </ol>
+
+      <section>
+        <h2 id="how-it-works">1. How it works</h2>
+        <p>
+          Pathline publishes a <code>ContentProvider</code> at the authority
+          <code>net.extrawdw.apps.locationhistory.provider</code>. You query one of three
+          collections by passing a time window as URI query parameters and read the results from the returned
+          <code>Cursor</code>.
+        </p>
+
+        <h3>The data model</h3>
+        <p>Pathline organizes location data into three layers, from raw to derived:</p>
+        <ul>
+          <li><strong>Samples</strong> — the raw, individual location fixes (a fused/GPS point with a timestamp, plus accuracy, speed, bearing, device state, …). The lowest level.</li>
+          <li><strong>Visits</strong> — <em>stays</em>: a continuous period spent at one place, derived by clustering samples. Carries a centroid, radius, and (when known) the matched place.</li>
+          <li><strong>Trips</strong> — the <em>movements</em> between stays, each with an inferred transport mode, a distance, and — for authorized callers — the route travelled.</li>
+        </ul>
+        <p>
+          Together, visits and trips form the user's timeline; samples are the raw
+          layer beneath it. A trip references the visits it connects via
+          <code>from_visit_id</code> / <code>to_visit_id</code>, so you can stitch a continuous
+          <em>stay → move → stay</em> timeline. Pick the layer your feature needs: the timeline for a
+          human-readable history, samples for raw analysis.
+        </p>
+
+        <h3>Collections</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Collection</th><th>Content URI</th><th>Required permission</th><th>Match semantics</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Visits</td><td><code>content://net.extrawdw.apps.locationhistory.provider/visits</code></td><td><code>READ_TIMELINE</code></td><td>overlap</td></tr>
+              <tr><td>Trips</td><td><code>content://net.extrawdw.apps.locationhistory.provider/trips</code></td><td><code>READ_TIMELINE</code></td><td>overlap</td></tr>
+              <tr><td>Samples</td><td><code>content://net.extrawdw.apps.locationhistory.provider/samples</code></td><td><code>READ_LOCATION_HISTORY</code></td><td>point-in-window</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Before any of this, your app must hold the install-time API gate permission
+          <code>net.extrawdw.apps.locationhistory.permission.API</code> — declare it with
+          <code>&lt;uses-permission&gt;</code> and the system auto-grants it (no prompt). An app that doesn't
+          declare it can't even resolve the provider, let alone query it. It's necessary but not sufficient:
+          every read still needs the relevant runtime permission(s) below.
+        </p>
+        <p>Two refinements layer on top of the base permission (see <a href="#permissions">§4</a>):</p>
+        <ul>
+          <li>Older than 30 days additionally requires <code>READ_EXTENDED_HISTORY</code>.</li>
+          <li>A trip's <code>encoded_polyline</code> (its precise route) is gated separately from the rest of the trip row: it is populated only when the caller also holds <code>READ_TIMELINE_ROUTE</code> or <code>READ_LOCATION_HISTORY</code>, and is <code>null</code> otherwise. A <code>READ_TIMELINE</code>-only caller still gets every trip, just without its route geometry.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 id="requirements">2. Requirements &amp; compatibility</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Requirement</th><th>Detail</th></tr></thead>
+            <tbody>
+              <tr><td>Pathline installed</td><td>The provider, permissions, and authority only resolve while Pathline is installed.</td></tr>
+              <tr><td>Pathline version</td><td>The Data API (revision 1) is available in Pathline 1.5.0 (version code 12) and later.</td></tr>
+              <tr><td>Android version</td><td>Android 14 (API 34) or newer — Pathline's minimum.</td></tr>
+              <tr><td>Package visibility</td><td>On Android 11+ (<code>targetSdk</code> 30+) you must declare Pathline in your <code>&lt;queries&gt;</code> to see the provider (see below).</td></tr>
+              <tr><td>Threading</td><td><code>ContentResolver.query</code> is blocking — never call it on the main thread.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="package-visibility">Package visibility (Android 11+)</h3>
+        <p>
+          Add this to your consumer app's <code>AndroidManifest.xml</code>, as a direct child of
+          <code>&lt;manifest&gt;</code>, so your app can resolve Pathline's provider and permissions:
+        </p>
+        <pre><code>&lt;queries&gt;
+    &lt;package android:name="net.extrawdw.apps.locationhistory" /&gt;
+&lt;/queries&gt;</code></pre>
+        <div class="callout important">
+          <p class="callout-title">Important</p>
+          <p>Without a <code>&lt;queries&gt;</code> entry (or <code>QUERY_ALL_PACKAGES</code>, which Google Play restricts), <code>ContentResolver</code> calls resolve to <code>null</code> and permission requests are silently denied on Android 11+. Prefer the targeted <code>&lt;queries&gt;</code> declaration above — do not request <code>QUERY_ALL_PACKAGES</code> just for this.</p>
+        </div>
+
+        <h3>Detecting whether Pathline is installed</h3>
+        <pre><code>fun isPathlineInstalled(context: Context): Boolean =
+    runCatching {
+        context.packageManager.getPackageInfo("net.extrawdw.apps.locationhistory", 0)
+        true
+    }.getOrDefault(false)</code></pre>
+      </section>
+
+      <section>
+        <h2 id="quick-start">3. Quick start</h2>
+        <ol>
+          <li>Declare the scopes you need and the <code>&lt;queries&gt;</code> entry in your manifest (<a href="#permissions">§4</a>).</li>
+          <li>Request the matching runtime permission(s) before reading (<a href="#request-at-runtime">§4</a>).</li>
+          <li>Query the collection for a time window and read the <code>Cursor</code> off the main thread (<a href="#querying">§5</a>).</li>
+        </ol>
+        <div class="callout tip">
+          <p class="callout-title">Tip</p>
+          <p>Request only the scope you actually use. If your feature only shows the timeline, request <code>READ_TIMELINE</code> alone — don't ask for location-history or extended-history access you won't use. Users are far more likely to grant a narrow, obviously-justified request.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="permissions">4. Permissions</h2>
+
+        <h3 id="the-api-gate">The API gate (install-time)</h3>
+        <p>One permission stands apart from the rest:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Permission (constant)</th><th>Protection level</th><th>Grants</th></tr></thead>
+            <tbody>
+              <tr><td><code>net.extrawdw.apps.locationhistory.permission.API</code></td><td><code>normal</code> (install-time, auto-granted)</td><td>Permission to reach the provider at all.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Just declare it with <code>&lt;uses-permission&gt;</code>; the system grants it at
+          install with no runtime prompt and nothing to request in code. It is a coarse
+          "this app uses the Pathline API" marker — necessary but not sufficient: every read
+          still requires the relevant runtime permission(s) below. An app that doesn't declare it can't resolve
+          or query the provider, and a query without it throws <code>SecurityException</code>.
+        </p>
+
+        <h3>The data permissions (runtime)</h3>
+        <p>These four are all <code>protectionLevel="dangerous"</code> (runtime, user-approved):</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Permission (constant)</th><th>Grants</th></tr></thead>
+            <tbody>
+              <tr><td><code>…permission.READ_TIMELINE</code></td><td>Read visits and trips (trip routes excluded — see below).</td></tr>
+              <tr><td><code>…permission.READ_TIMELINE_ROUTE</code></td><td>Unlock the <code>trips.encoded_polyline</code> route column. Requested in addition to <code>READ_TIMELINE</code>.</td></tr>
+              <tr><td><code>…permission.READ_LOCATION_HISTORY</code></td><td>Read raw location samples. Also unlocks <code>trips.encoded_polyline</code>.</td></tr>
+              <tr><td><code>…permission.READ_EXTENDED_HISTORY</code></td><td>Read data older than 30 days — required in addition to the relevant base permission.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>A consumer must both declare a permission (manifest) and request it (runtime). Declaring without requesting, or requesting without declaring, will not grant access.</p>
+
+        <h3>Choosing your scopes</h3>
+        <p>These permissions form an escalating ladder — request the lowest tier your feature needs:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Your feature needs…</th><th>Declare &amp; request</th></tr></thead>
+            <tbody>
+              <tr><td>Trip types, durations, distances, visits</td><td><code>READ_TIMELINE</code></td></tr>
+              <tr><td>…plus drawing the route of each trip</td><td><code>READ_TIMELINE</code> + <code>READ_TIMELINE_ROUTE</code></td></tr>
+              <tr><td>Raw, per-point location fixes (timestamps, accuracy, speed…)</td><td><code>READ_LOCATION_HISTORY</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout note">
+          <p class="callout-title">Note</p>
+          <p><code>READ_TIMELINE_ROUTE</code> and <code>READ_LOCATION_HISTORY</code> belong to one permission group (both expose the precise path). On Android, once the user grants one permission in a group, your app's other <em>declared</em> permissions in that group are granted without a second prompt, and they are revoked together as one unit. So a reader that declares both gets them in a single consent; a routes-only reader that declares just <code>READ_TIMELINE_ROUTE</code> (not <code>READ_LOCATION_HISTORY</code>) still never gains sample access. <code>READ_TIMELINE</code> and <code>READ_EXTENDED_HISTORY</code> are standalone — each is its own independent consent.</p>
+        </div>
+
+        <h3>Declare (consumer <code>AndroidManifest.xml</code>)</h3>
+        <pre><code>&lt;!-- Required by every consumer: the install-time gate to reach the provider (auto-granted). --&gt;
+&lt;uses-permission android:name="net.extrawdw.apps.locationhistory.permission.API" /&gt;
+
+&lt;uses-permission android:name="net.extrawdw.apps.locationhistory.permission.READ_TIMELINE" /&gt;
+&lt;!-- Only if you draw trip routes (or skip it and rely on READ_LOCATION_HISTORY): --&gt;
+&lt;uses-permission android:name="net.extrawdw.apps.locationhistory.permission.READ_TIMELINE_ROUTE" /&gt;
+&lt;!-- Only if you need raw location samples: --&gt;
+&lt;uses-permission android:name="net.extrawdw.apps.locationhistory.permission.READ_LOCATION_HISTORY" /&gt;
+&lt;!-- Only if you need data older than 30 days: --&gt;
+&lt;uses-permission android:name="net.extrawdw.apps.locationhistory.permission.READ_EXTENDED_HISTORY" /&gt;</code></pre>
+
+        <h3 id="request-at-runtime">Request at runtime</h3>
+        <pre><code>val launcher = registerForActivityResult(
+    ActivityResultContracts.RequestMultiplePermissions()
+) { result -&gt;
+    val granted = result.values.all { it }
+    // Reload your data if granted; otherwise guide the user (see the OEM note below).
+}
+
+// Request only what the current feature needs:
+launcher.launch(arrayOf(
+    "net.extrawdw.apps.locationhistory.permission.READ_TIMELINE",
+))</code></pre>
+        <p>The user can revoke any of these at any time in Settings → Apps → (your app) → Permissions.</p>
+
+        <h3 id="oem-fallback">Permission requests may not work on every device</h3>
+        <div class="callout warning">
+          <p class="callout-title">Warning</p>
+          <p>Some Android skins (notably Xiaomi MIUI / HyperOS builds) do not support the <em>third-party custom</em> permissions — the request can be silently denied without any prompt.</p>
+          <p>Make your flow resilient: if the permission is still not granted after a request, fall back to deep-linking the user to your app's settings page so they can grant it manually. Be aware that some OEM permission managers also hide third-party custom permissions in their <em>own</em> UI; if so, the user may need to reach the stock Android permission controller (e.g. <em>Settings → Apps → (your app) → Permissions</em>) to find and grant them.</p>
+        </div>
+        <pre><code>fun openAppSettings(context: Context) {
+    context.startActivity(
+        Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", context.packageName, null),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    )
+}</code></pre>
+        <div class="callout tip">
+          <p class="callout-title">Tip</p>
+          <p>Re-check permissions in <code>onResume</code> (e.g. with <code>ContextCompat.checkSelfPermission</code>) so your screen reloads automatically when the user returns from the Settings page after granting access.</p>
+        </div>
+
+        <h3 id="errors">Errors</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Condition</th><th>Thrown by <code>query</code></th></tr></thead>
+            <tbody>
+              <tr><td>Caller lacks the collection's base permission</td><td><code>SecurityException</code></td></tr>
+              <tr><td>Window's <code>start</code> is older than 30 days and caller lacks <code>READ_EXTENDED_HISTORY</code></td><td><code>SecurityException</code></td></tr>
+              <tr><td><code>start</code> query parameter missing, or <code>end &lt;= start</code></td><td><code>IllegalArgumentException</code></td></tr>
+              <tr><td>Unknown collection path</td><td><code>IllegalArgumentException</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout note">
+          <p class="callout-title">Note</p>
+          <p>Lacking the route permission is not an error: a <code>READ_TIMELINE</code>-only caller's <code>trips</code> query succeeds, with <code>encoded_polyline</code> returned as <code>null</code> on every row. Always null-check that column (<a href="#trips">§6</a>).</p>
+        </div>
+        <div class="callout caution">
+          <p class="callout-title">Caution</p>
+          <p>An over-30-day window without <code>READ_EXTENDED_HISTORY</code> is rejected, never silently narrowed. Either keep <code>start</code> within the last 30 days, or hold the extended-history permission — don't assume a clamped result.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="querying">5. Querying</h2>
+        <p>Every collection is queried by a time window passed as URI query parameters:</p>
+        <pre><code>content://net.extrawdw.apps.locationhistory.provider/&lt;collection&gt;?start=&lt;epochMs&gt;&amp;end=&lt;epochMs&gt;</code></pre>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Parameter</th><th>Required</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>start</code></td><td>Yes</td><td>Inclusive start of the window, epoch milliseconds (UTC).</td></tr>
+              <tr><td><code>end</code></td><td>No</td><td>Exclusive end of the window, epoch milliseconds (UTC). Defaults to now.</td></tr>
+              <tr><td><code>group</code></td><td>No</td><td>Batch-correlation key (see <a href="#grouping">Grouping batched reads</a>). Affects display only, never the data returned.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="grouping">Grouping batched reads</h3>
+        <p>A single user-facing refresh often reads several collections at once (e.g. <code>visits</code> + <code>trips</code> + <code>samples</code>). By default those log as separate entries in Pathline's access manager. Pass an optional <code>group</code> key — the same value on every request in the batch — to have Pathline display them as one expandable access group.</p>
+        <ul>
+          <li><strong>Value:</strong> a wall-clock epoch-ms number at/near "now" — use <code>System.currentTimeMillis()</code> captured once at the start of the batch and reused. (Not <code>elapsedRealtime</code>.)</li>
+          <li><strong>Validity:</strong> honored only when it lands essentially at "now" — between ~120 s before and a few seconds after the moment Pathline receives the request; stale, far-future, or non-numeric values are ignored (the read is still logged, just ungrouped). An invalid <code>group</code> never causes an error.</li>
+          <li><strong>Scope:</strong> grouping is per calling package — you can only group your own reads, never merge with another app's.</li>
+          <li><strong>Display only:</strong> <code>group</code> has zero effect on what data a query returns. It also can't <em>hide</em> reads — Pathline still logs every individual request; grouped entries are expandable to the originals, and every request (with its group key) appears in the user's exportable log.</li>
+        </ul>
+        <pre><code>val batch = System.currentTimeMillis()           // one value for the whole refresh
+val visits  = query("visits",  start, now, group = batch)
+val trips   = query("trips",   start, now, group = batch)
+val samples = query("samples", start, now, group = batch)</code></pre>
+        <div class="callout note">
+          <p class="callout-title">Note</p>
+          <p>The 120 s validity is deliberate: a batch must complete within ~2 minutes to group. A long-running sync that spans more than that <em>is</em> several accesses over time and is shown as such — you can't make all-day activity look like a single access.</p>
+        </div>
+
+        <h3 id="match-semantics">Match semantics</h3>
+        <ul>
+          <li><strong>Timeline (<code>visits</code>, <code>trips</code>) — overlap.</strong> Any item whose <code>[start_ms, end_ms]</code> span intersects the requested <code>[start, end)</code> window is returned in full, including items that began before <code>start</code> or end after <code>end</code>. A request that lands in the middle of a stay or a journey returns that whole item — you never get truncated fragments.</li>
+          <li><strong>Samples — point-in-window.</strong> A sample is returned when <code>start &lt;= timestamp_ms &lt; end</code>.</li>
+        </ul>
+
+        <h3>Ordering</h3>
+        <p>Results are ordered ascending by <code>start_ms</code> (timeline) / <code>timestamp_ms</code> (samples).</p>
+
+        <h3>Ignored arguments</h3>
+        <div class="callout note">
+          <p class="callout-title">Note</p>
+          <p><code>projection</code>, <code>selection</code>, <code>selectionArgs</code>, and <code>sortOrder</code> are ignored. Scope every query through the <code>start</code> / <code>end</code> URI parameters; the column set and ordering are fixed (see <a href="#data-reference">§6</a>). Always resolve columns by name with <code>Cursor.getColumnIndexOrThrow(...)</code> rather than by fixed index.</p>
+        </div>
+
+        <h3>Paging</h3>
+        <div class="callout important">
+          <p class="callout-title">Important</p>
+          <p>There is no paging — a query returns the entire matching set in one <code>Cursor</code>. A wide <code>samples</code> window can return tens of thousands of rows. Query in bounded windows (e.g. a day or a week at a time) and always read the cursor off the main thread. When you must cover a long span, split it into several bounded windows queried in sequence (optionally sharing one <a href="#grouping"><code>group</code></a> key so they log as a single access). A future Pathline version may also cap the maximum window size.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="data-reference">6. Data reference</h2>
+        <p>All times are epoch milliseconds, UTC. Nullable columns are marked <code>?</code>. Each collection also advertises a directory MIME type via <code>getType()</code> — <code>vnd.android.cursor.dir/vnd.net.extrawdw.apps.locationhistory.&lt;visit|trip|sample&gt;</code> — though <code>ContentResolver.query</code> never requires you to read it.</p>
+
+        <h3 id="visits">visits</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Column</th><th>Type</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><code>_id</code></td><td>long</td><td>Stable visit id.</td></tr>
+              <tr><td><code>start_ms</code></td><td>long</td><td>Stay start.</td></tr>
+              <tr><td><code>end_ms</code></td><td>long</td><td>Stay end (equals "now" while the visit is ongoing).</td></tr>
+              <tr><td><code>place_id</code></td><td>long?</td><td>Matched place id, or null when unconfirmed / candidate-only.</td></tr>
+              <tr><td><code>place_name</code></td><td>string?</td><td>Matched place name, else candidate name, else null.</td></tr>
+              <tr><td><code>latitude</code></td><td>double</td><td>Visit centroid latitude.</td></tr>
+              <tr><td><code>longitude</code></td><td>double</td><td>Visit centroid longitude.</td></tr>
+              <tr><td><code>radius_meters</code></td><td>double</td><td>Approximate radius of the stay.</td></tr>
+              <tr><td><code>confidence</code></td><td>float</td><td>Place-attribution confidence, <code>[0,1]</code>.</td></tr>
+              <tr><td><code>confirmed</code></td><td>int</td><td><code>1</code> if the user confirmed the place, else <code>0</code>.</td></tr>
+              <tr><td><code>is_ongoing</code></td><td>int</td><td><code>1</code> if this is the current open visit, else <code>0</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="trips">trips</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Column</th><th>Type</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><code>_id</code></td><td>long</td><td>Stable trip id.</td></tr>
+              <tr><td><code>start_ms</code></td><td>long</td><td>Movement start.</td></tr>
+              <tr><td><code>end_ms</code></td><td>long</td><td>Movement end.</td></tr>
+              <tr><td><code>mode</code></td><td>string</td><td>One of the <a href="#enumerations">transport modes</a> below.</td></tr>
+              <tr><td><code>mode_confidence</code></td><td>float</td><td>Confidence of <code>mode</code>, <code>[0,1]</code>.</td></tr>
+              <tr><td><code>distance_meters</code></td><td>double</td><td>Total distance traveled.</td></tr>
+              <tr><td><code>encoded_polyline</code></td><td>string?</td><td>Route as a Google encoded polyline (precision 5). <code>null</code> unless the caller holds <code>READ_TIMELINE_ROUTE</code> or <code>READ_LOCATION_HISTORY</code> (<a href="#permissions">§4</a>).</td></tr>
+              <tr><td><code>confirmed</code></td><td>int</td><td><code>1</code> if the user confirmed the mode, else <code>0</code>.</td></tr>
+              <tr><td><code>from_visit_id</code></td><td>long?</td><td>Departure visit id, or null.</td></tr>
+              <tr><td><code>to_visit_id</code></td><td>long?</td><td>Arrival visit id, or null.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="samples">samples</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Column</th><th>Type</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><code>_id</code></td><td>long</td><td>Stable sample id.</td></tr>
+              <tr><td><code>timestamp_ms</code></td><td>long</td><td>Time of the fix.</td></tr>
+              <tr><td><code>latitude</code></td><td>double</td><td></td></tr>
+              <tr><td><code>longitude</code></td><td>double</td><td></td></tr>
+              <tr><td><code>altitude</code></td><td>double?</td><td>Meters, or null.</td></tr>
+              <tr><td><code>accuracy</code></td><td>float?</td><td>Horizontal accuracy radius in meters, or null.</td></tr>
+              <tr><td><code>bearing</code></td><td>float?</td><td>Degrees, or null.</td></tr>
+              <tr><td><code>speed</code></td><td>float?</td><td>Meters/second, or null.</td></tr>
+              <tr><td><code>provider</code></td><td>string?</td><td>Source provider (e.g. <code>fused</code>, <code>gps</code>), or null.</td></tr>
+              <tr><td><code>is_mock</code></td><td>int</td><td><code>1</code> if reported as a mock location, else <code>0</code>.</td></tr>
+              <tr><td><code>device_state</code></td><td>string</td><td>One of the <a href="#enumerations">device states</a> below.</td></tr>
+              <tr><td><code>ar_activity</code></td><td>string?</td><td>Raw Activity-Recognition activity string, or null.</td></tr>
+              <tr><td><code>network_transport</code></td><td>string?</td><td>One of the <a href="#enumerations">network transports</a> below, or null.</td></tr>
+              <tr><td><code>included_in_computation</code></td><td>int</td><td><code>1</code> if used in timeline computation, <code>0</code> if excluded (e.g. mock / GPS drift).</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="enumerations">Enumerations</h3>
+        <p>String columns use fixed, stable token sets. Treat any unrecognized value as the <code>UNKNOWN</code>/null case.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Column</th><th>Values</th></tr></thead>
+            <tbody>
+              <tr><td><code>trips.mode</code></td><td><code>WALKING</code>, <code>RUNNING</code>, <code>CYCLING</code>, <code>CAR</code>, <code>BUS</code>, <code>RAIL</code>, <code>FERRY</code>, <code>FLIGHT</code>, <code>UNKNOWN</code></td></tr>
+              <tr><td><code>samples.device_state</code></td><td><code>STATIONARY</code>, <code>WALKING</code>, <code>RUNNING</code>, <code>CYCLING</code>, <code>IN_VEHICLE</code>, <code>UNKNOWN</code></td></tr>
+              <tr><td><code>samples.network_transport</code></td><td><code>WIFI</code>, <code>CELLULAR</code>, <code>ETHERNET</code>, <code>VPN</code>, <code>OTHER</code>, <code>NONE</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="complete-example">7. Complete example</h2>
+        <p>A minimal, production-shaped read: declare → request (with OEM fallback) → query off the main thread.</p>
+        <pre><code>object Pathline {
+    const val AUTHORITY = "net.extrawdw.apps.locationhistory.provider"
+    const val READ_TIMELINE = "net.extrawdw.apps.locationhistory.permission.READ_TIMELINE"
+
+    fun windowUri(collection: String, startMs: Long, endMs: Long): Uri =
+        Uri.parse("content://$AUTHORITY/$collection").buildUpon()
+            .appendQueryParameter("start", startMs.toString())
+            .appendQueryParameter("end", endMs.toString())
+            .build()
+}
+
+data class Visit(val id: Long, val name: String?, val startMs: Long, val endMs: Long)
+
+/** Reads visits overlapping [startMs, endMs). Call from a background dispatcher. */
+fun readVisits(resolver: ContentResolver, startMs: Long, endMs: Long): List&lt;Visit&gt; {
+    val out = ArrayList&lt;Visit&gt;()
+    resolver.query(Pathline.windowUri("visits", startMs, endMs), null, null, null, null)?.use { c -&gt;
+        val id = c.getColumnIndexOrThrow("_id")
+        val name = c.getColumnIndexOrThrow("place_name")
+        val start = c.getColumnIndexOrThrow("start_ms")
+        val end = c.getColumnIndexOrThrow("end_ms")
+        while (c.moveToNext()) {
+            out += Visit(
+                id = c.getLong(id),
+                name = if (c.isNull(name)) null else c.getString(name),
+                startMs = c.getLong(start),
+                endMs = c.getLong(end),
+            )
+        }
+    }
+    return out
+}</code></pre>
+        <p>Driving it from a screen, with the permission flow and the OEM fallback:</p>
+        <pre><code>private val needed = arrayOf(Pathline.READ_TIMELINE)
+
+private val permissionLauncher = registerForActivityResult(
+    ActivityResultContracts.RequestMultiplePermissions()
+) { if (it.values.all { granted -&gt; granted }) loadTimeline() else /* show "Open settings" hint */ }
+
+private fun ensureAccessThenLoad() {
+    val missing = needed.filter {
+        ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+    }
+    if (missing.isEmpty()) loadTimeline() else permissionLauncher.launch(missing.toTypedArray())
+}
+
+private fun loadTimeline() {
+    lifecycleScope.launch(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val visits = try {
+            readVisits(contentResolver, now - 24 * 60 * 60 * 1000L, now)
+        } catch (e: SecurityException) {
+            emptyList() // permission missing/revoked — prompt or deep-link to settings
+        }
+        withContext(Dispatchers.Main) { render(visits) }
+    }
+}</code></pre>
+        <div class="callout tip">
+          <p class="callout-title">Tip</p>
+          <p>To read further back than 30 days, widen <code>start</code> and hold <code>READ_EXTENDED_HISTORY</code> — otherwise the query throws <code>SecurityException</code>.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="best-practices">8. Best practices</h2>
+        <div class="callout important">
+          <p class="callout-title">Important</p>
+          <p>Always guard the query with a permission check. Call <code>ContextCompat.checkSelfPermission(...)</code> for each required scope and only query when it's granted; otherwise request the permission (or send the user to Settings). A query you aren't authorized for throws <code>SecurityException</code>, is recorded in the user-visible access log as a denied attempt, and immediately notifies the user that your app tried to reach a scope it isn't permitted — so never call the provider speculatively to "see if it works."</p>
+          <pre><code>fun canRead(context: Context, vararg permissions: String): Boolean =
+    permissions.all {
+        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    }
+
+// Guard, don't probe:
+if (canRead(context, Pathline.READ_TIMELINE)) {
+    readVisits(contentResolver, start, now)   // safe — permission held
+} else {
+    requestPermissions(arrayOf(Pathline.READ_TIMELINE))  // ask first
+}</code></pre>
+        </div>
+        <ul>
+          <li><strong>Query in bounded windows.</strong> Prefer a day or a week per query, especially for <code>samples</code>. There is no paging.</li>
+          <li><strong>Always go off-thread.</strong> <code>query</code> is blocking IPC; use a background dispatcher / <code>WorkManager</code>.</li>
+          <li><strong>Resolve columns by name.</strong> Use <code>getColumnIndexOrThrow</code> and handle nullables with <code>Cursor.isNull</code>.</li>
+          <li><strong>Request the narrowest scope.</strong> Only ask for <code>READ_EXTENDED_HISTORY</code> when the user actually navigates past 30 days.</li>
+          <li><strong>Handle absence and revocation gracefully.</strong> Pathline may be uninstalled, or a permission revoked, between launches — catch <code>SecurityException</code> and re-check on resume.</li>
+          <li>Don't hardcode column indices or assume ordering beyond the documented ascending sort.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 id="privacy">9. Privacy &amp; transparency</h2>
+        <p>Pathline treats third-party access as a first-class privacy surface: every interaction is recorded on-device and shown to the user, who can revoke any app at any time. Design your integration assuming the user sees exactly what you do.</p>
+        <div class="callout important">
+          <p class="callout-title">Important</p>
+          <p>Pathline logs both of these to the audit trail under Settings → Access to Pathline data, and the user can revoke any app's access from there:</p>
+          <ul>
+            <li><strong>Every successful read</strong> — which app, which collection, the requested window, and the number of rows returned.</li>
+            <li><strong>Every denied attempt</strong> — a <em>well-formed</em> request rejected because your app lacks the permission. It reads nothing, is shown as "Denied", and — unlike a read — notifies the user immediately that your app tried to reach a scope it isn't permitted.</li>
+          </ul>
+          <p>A speculative or unguarded query is therefore both visible <em>and</em> actively surfaced to the user. Always <a href="#best-practices">guard your query with a permission check</a> and request the scope first — never probe to "see if it works."</p>
+        </div>
+        <ul>
+          <li><strong>Read the minimum, on demand.</strong> Request the narrowest scope, over the smallest window, in clear response to a user action — bursty or unexplained access is visible to the user.</li>
+          <li><strong>On-device only.</strong> The audit metadata never leaves the device and is not included in Pathline's encrypted backups.</li>
+          <li><strong>Your data handling is your responsibility.</strong> This API never exposes another user's data and never leaves the device by itself; what <em>your</em> app does with what it reads is on you (and subject to Google Play's policies).</li>
+        </ul>
+
+        <h3>Notification behavior</h3>
+        <p>Pathline proactively alerts the user about third-party access. Assume both of the following will surface as user notifications:</p>
+        <ul>
+          <li><strong>On a successful read</strong> — a separate, per-app notification (your app's icon on the right, Pathline's on the left) naming your app and summarizing what was read (e.g. <em>"Acme accessed 6 visits, 2,636 location samples."</em>). Reads are coalesced (a burst becomes one alert) and rate-limited per app with an escalating back-off (next alert waits ~1h, then 2h, 4h … up to 24h), so a frequently-reading app won't spam the user. The back-off resets after ~48h quiet.</li>
+          <li><strong>On a denied attempt</strong> — a separate, immediate notification (<em>"Acme tried to access Location history without permission."</em>). It fires without the coalescing delay because a blocked access is a security-relevant event the user should hear about right away. It rides its own per-app back-off lane (so it never displaces, or is muffled by, the read alert) with the same escalating limit for repeats.</li>
+          <li><strong>Standing-access reminder</strong> — periodically (about weekly), Pathline reminds the user which apps still hold access, so a granted-and-forgotten app is surfaced for review.</li>
+        </ul>
+        <p>All of these use a dedicated, default-importance "Data access alerts" notification channel the user can tune or mute in system settings, and deep-link into Settings → Access to Pathline data. The user can reset all back-off timers from there, so the next access (read or denied) alerts again at once.</p>
+        <div class="callout note">
+          <p class="callout-title">Note</p>
+          <p>Permissions themselves are standard Android runtime permissions — granting/revoking happens in the OS permission UI, and Pathline sends no notification for a grant or revoke. The alerts above are about reads, denied attempts, and standing access, not permission changes.</p>
+        </div>
+        <div class="callout tip">
+          <p class="callout-title">Tip</p>
+          <p>Because access is user-visible and notified, do your reads in clear response to a user action (opening your timeline screen, a widget refresh) rather than silent, high-frequency background polling — and never query a scope you haven't been granted.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="stability">10. Stability &amp; versioning</h2>
+        <p>The following are part of the stable contract for API revision 1 and will not change without a new API revision:</p>
+        <ul>
+          <li>The authority <code>net.extrawdw.apps.locationhistory.provider</code>.</li>
+          <li>The collection paths <code>visits</code>, <code>trips</code>, <code>samples</code>.</li>
+          <li>The permission names — including the install-time gate <code>…permission.API</code> — the query-parameter names (<code>start</code>, <code>end</code>), and the column names in <a href="#data-reference">§6</a>.</li>
+        </ul>
+        <div class="callout note">
+          <p class="callout-title">Note</p>
+          <p>New columns or collections may be added in place; treat unknown columns/values defensively and don't assume a fixed column count. The 30-day boundary for <code>READ_EXTENDED_HISTORY</code> is a fixed product rule.</p>
+        </div>
+        <div class="callout warning">
+          <p class="callout-title">Warning</p>
+          <p>Change notifications are not delivered. A <code>Cursor</code> from this provider sets a notification URI, but Pathline does not currently call <code>notifyChange</code>, so a <code>ContentObserver</code> will not fire when data updates. Poll on your own cadence (e.g. on screen open or via <code>WorkManager</code>); do not rely on observers.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="troubleshooting">11. Troubleshooting</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Symptom</th><th>Likely cause / fix</th></tr></thead>
+            <tbody>
+              <tr><td><code>query</code> returns <code>null</code></td><td>Pathline not installed, or missing <code>&lt;queries&gt;</code> visibility (<a href="#package-visibility">§2</a>).</td></tr>
+              <tr><td><code>SecurityException</code> on every call</td><td>Missing the install-time <code>…permission.API</code> gate — declare it with <code>&lt;uses-permission&gt;</code> (<a href="#the-api-gate">§4</a>).</td></tr>
+              <tr><td><code>SecurityException</code></td><td>Missing base permission, or an over-30-day window without <code>READ_EXTENDED_HISTORY</code> (<a href="#errors">§4</a>).</td></tr>
+              <tr><td><code>IllegalArgumentException</code></td><td>Missing <code>start</code>, <code>end &lt;= start</code>, or an unknown path (<a href="#errors">§4</a>).</td></tr>
+              <tr><td>No permission dialog appears</td><td>OEM skin suppressing third-party custom-permission prompts — deep-link to app settings (<a href="#oem-fallback">§4</a>).</td></tr>
+              <tr><td>Empty results for a valid window</td><td>Permission granted but the user simply has no data in that window, or all samples were excluded.</td></tr>
+              <tr><td><code>encoded_polyline</code> is always <code>null</code></td><td>Caller holds <code>READ_TIMELINE</code> but neither <code>READ_TIMELINE_ROUTE</code> nor <code>READ_LOCATION_HISTORY</code> (<a href="#permissions">§4</a>).</td></tr>
+              <tr><td>Observer never fires</td><td>Expected — no change notifications; poll instead (<a href="#stability">§10</a>).</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="appendix-a">Appendix A — Contract constants</h2>
+        <p>Pathline ships the canonical, dependency-free contract at <code>net.extrawdw.apps.locationhistory.api.PathlineContract</code> — prefer copying that file verbatim to avoid string literals. The excerpt below is the string-constant subset for quick reference; the shipped file additionally provides a typed <code>CONTENT_URI</code> and <code>CONTENT_TYPE</code> per collection and a <code>COLUMNS</code> array for each.</p>
+        <p><a class="button secondary small" href="contracts/PathlineContract-rev1.kt" download>Download <code>PathlineContract.kt</code> (revision 1)</a></p>
+        <pre><code>object PathlineContract {
+    const val AUTHORITY = "net.extrawdw.apps.locationhistory.provider"
+
+    /** Windows reaching further back than this need READ_EXTENDED_HISTORY. */
+    const val EXTENDED_HISTORY_WINDOW_MS = 30L * 24 * 60 * 60 * 1000
+
+    object Permissions {
+        /** Install-time gate (normal); declare to reach the provider. Necessary, not sufficient. */
+        const val API = "net.extrawdw.apps.locationhistory.permission.API"
+        const val READ_TIMELINE = "net.extrawdw.apps.locationhistory.permission.READ_TIMELINE"
+        const val READ_TIMELINE_ROUTE = "net.extrawdw.apps.locationhistory.permission.READ_TIMELINE_ROUTE"
+        const val READ_LOCATION_HISTORY = "net.extrawdw.apps.locationhistory.permission.READ_LOCATION_HISTORY"
+        const val READ_EXTENDED_HISTORY = "net.extrawdw.apps.locationhistory.permission.READ_EXTENDED_HISTORY"
+    }
+
+    object QueryParams {
+        const val START = "start" // inclusive, epoch ms (required)
+        const val END = "end"     // exclusive, epoch ms (optional, defaults to now)
+        const val GROUP = "group" // optional batch key: epoch ms ~now, within 120s of receipt
+    }
+
+    object Visits {
+        const val PATH = "visits"
+        const val ID = "_id"
+        const val START_MS = "start_ms"
+        const val END_MS = "end_ms"
+        const val PLACE_ID = "place_id"
+        const val PLACE_NAME = "place_name"
+        const val LATITUDE = "latitude"
+        const val LONGITUDE = "longitude"
+        const val RADIUS_METERS = "radius_meters"
+        const val CONFIDENCE = "confidence"
+        const val CONFIRMED = "confirmed"
+        const val IS_ONGOING = "is_ongoing"
+    }
+
+    object Trips {
+        const val PATH = "trips"
+        const val ID = "_id"
+        const val START_MS = "start_ms"
+        const val END_MS = "end_ms"
+        const val MODE = "mode"
+        const val MODE_CONFIDENCE = "mode_confidence"
+        const val DISTANCE_METERS = "distance_meters"
+        const val ENCODED_POLYLINE = "encoded_polyline"
+        const val CONFIRMED = "confirmed"
+        const val FROM_VISIT_ID = "from_visit_id"
+        const val TO_VISIT_ID = "to_visit_id"
+    }
+
+    object Samples {
+        const val PATH = "samples"
+        const val ID = "_id"
+        const val TIMESTAMP_MS = "timestamp_ms"
+        const val LATITUDE = "latitude"
+        const val LONGITUDE = "longitude"
+        const val ALTITUDE = "altitude"
+        const val ACCURACY = "accuracy"
+        const val BEARING = "bearing"
+        const val SPEED = "speed"
+        const val PROVIDER = "provider"
+        const val IS_MOCK = "is_mock"
+        const val DEVICE_STATE = "device_state"
+        const val AR_ACTIVITY = "ar_activity"
+        const val NETWORK_TRANSPORT = "network_transport"
+        const val INCLUDED_IN_COMPUTATION = "included_in_computation"
+    }
+}</code></pre>
+      </section>
+    </main>
+
+    <footer>
+      <span>&copy; 2026 Extrawdw</span>
+      <a href="index.html">Home</a>
+      <a href="privacy.html">Privacy Policy</a>
+    </footer>
+  </body>
+</html>

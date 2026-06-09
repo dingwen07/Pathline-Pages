@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Data API — Revision history | Pathline</title>
+    <meta name="description" content="Revision history for the Pathline Data API. The current revision and any archived earlier revisions, each with its own integration guide and contract file.">
+    <link rel="icon" href="assets/pathline-icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="assets/pathline-icon.svg">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="index.html" aria-label="Pathline home">
+        <img class="brand-icon" src="assets/pathline-icon.svg" alt="" aria-hidden="true">
+        <span>Pathline</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="index.html#features">Features</a>
+        <a href="index.html#privacy">Privacy</a>
+        <a href="index.html#developers">Developers</a>
+        <a href="api.html">Data API</a>
+        <a href="privacy.html">Privacy Policy</a>
+      </nav>
+    </header>
+
+    <main class="doc">
+      <p class="eyebrow">Developers</p>
+      <h1>Data API revision history</h1>
+      <p class="doc-sub">Every revision of the Pathline Data API</p>
+      <p class="doc-meta">
+        <a href="api.html">← Current integration guide</a>
+      </p>
+
+      <p>
+        The Pathline Data API is versioned by <strong>revision</strong>. Each revision has a stable contract —
+        authority, permission names, URI paths, and column names — that does not change in a breaking way once
+        published; new capabilities ship as a new revision. The <a href="api.html">current integration guide</a>
+        always documents the latest revision. When a revision is superseded, its guide and contract are archived
+        here so existing integrations can still reference the exact contract they were built against.
+      </p>
+
+      <h2 id="revisions">Revisions</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Revision</th><th>Status</th><th>Pathline version</th><th>Guide</th><th>Contract</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Revision 2</td>
+              <td><span class="badge badge-current">Current</span></td>
+              <td>1.6.0 (version code 13) and later</td>
+              <td><a href="api.html">Integration guide →</a></td>
+              <td><a href="contracts/PathlineContract-rev2.kt" download><code>PathlineContract.kt</code></a></td>
+            </tr>
+            <tr>
+              <td>Revision 1</td>
+              <td><span class="badge badge-archived">Archived</span></td>
+              <td>1.5.0 (version code 12) – 1.5.x</td>
+              <td><a href="api-rev1.html">Integration guide →</a></td>
+              <td><a href="contracts/PathlineContract-rev1.kt" download><code>PathlineContract.kt</code></a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="doc-note">
+        What's new in revision 2: the <code>places</code> collection and per-place <code>visits</code> history,
+        a <code>status</code> route and the user access switch, and the <code>REQUEST_API_ACCESS</code> action
+        for in-app onboarding. The <code>visits</code>, <code>trips</code>, and <code>samples</code> collections
+        are unchanged, so revision 1 integrations keep working against revision 2.
+      </p>
+
+      <div class="developers-cta">
+        <div>
+          <h2>Current revision</h2>
+          <p>Revision 2 — the full integration guide with the access model, places, querying, the data reference, and a complete example.</p>
+        </div>
+        <a class="button primary" href="api.html">Read the integration guide</a>
+      </div>
+    </main>
+
+    <footer>
+      <span>&copy; 2026 Extrawdw</span>
+      <a href="index.html">Home</a>
+      <a href="privacy.html">Privacy Policy</a>
+    </footer>
+  </body>
+</html>
